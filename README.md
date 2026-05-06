@@ -11,7 +11,7 @@ You can view a **Live demo** here: [Medical Image Processing WebApp](https://cm-
 `MedImageProc_WebApp.py` contains several library imports, CSS coding for the page configuration, functions that are purely used for image loading and processing, and functions that use the Streamlit library to set up the page and user interface.
 
 The image types the app can work with are: `.bmp`, `.png`, `.jpg`, `.jpeg`, `.tif`, `.tiff`, and most importantly, DICOM images (`.dcm`). The app can also display DICOM Metadata (information about the patient, the acquisition protocol, the imaging modality, the image size, etc.).
-Provided with the script is a folder called `images`, which contains some samples of medical images to process with the app. The samples have been reproduces from *(https://www.magnetomworld.siemens-healthineers.com/clinical-corner/protocols/dicom-images/deep-resolve)*, and are anonymous. The app also lets the user upload a file from a different directory by copy-pasting the path, or through drag and drop.
+Provided with the script is a folder called `images`, which contains some samples of medical images to process with the app. The samples have been reproduced from *[Siemens Healthineers-Protocols](https://www.magnetomworld.siemens-healthineers.com/clinical-corner/protocols/dicom-images/deep-resolve)*, and are anonymous. The app also lets the user upload a file from a different directory, by copy-pasting the path, or through drag and drop.
 
 ---
 
