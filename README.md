@@ -2,6 +2,9 @@
 
 A web application using the Streamlit library (https://streamlit.io/), created for a VSCode virtual environment (venv) and deployed with Streamlit Community Cloud.
 
+You can view a **Live demo** here: [Medical Image Processing WebApp](https://cm-medical-image-processing.streamlit.app/)
+
+
 ---
 
 ## Overview
