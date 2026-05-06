@@ -602,7 +602,8 @@ def ch1_display_methods():
         ax1 = fig_f.add_subplot(1, 2, 1)
         ax2 = fig_f.add_subplot(1, 2, 2)
         if y_init is not None:
-            ax1.plot(x_ax, y_init, color="#6cb6ff", lw=1.5, label="Initial")
+            x_init = np.arange(len(y_init)) ###
+            ax1.plot(x_init, y_init, color="#6cb6ff", lw=1.5, label="Initial")
             ax1.set_title("Initial Display Function"); ax1.grid(True, alpha=0.3)
             ax1.set_xlabel("Input intensity"); ax1.set_ylabel("Output intensity")
         if w_func is not None:
@@ -634,7 +635,7 @@ def ch1_display_methods():
         gss[1].imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
         gss[1].set_title(f"Processed · {txt}  wc={wc}, ww={ww}"); gss[1].axis("off")
         if y_init is not None:
-            gss[2].plot(x_ax, y_init, color="#6cb6ff", label="Initial")
+            gss[2].plot(np.arange(len(y_init)), y_init, color="#6cb6ff", label="Initial")
         if w_func is not None:
             gss[2].plot(np.arange(len(w_func)), w_func, color="#f78166", label="Processed")
         gss[2].set_title("Display Function"); gss[2].legend(fontsize=7); gss[2].grid(True, alpha=0.3)
