@@ -309,8 +309,8 @@ def apply_dicom_window(arr, wc, ww):
 # IMAGE LOADER (handles standard + DICOM via upload or folder)
 # Returns: (gray_float_array, original_filename, extension, is_dicom, dicom_meta)
 # ─────────────────────────────────────────────────────────────────────────────
-
-def image_loader_widget(key_prefix="main"):
+### edit: _widget
+def image_loader_core(key_prefix="main"):
     """Renders sidebar image-load controls + unified 0-255 window sliders.
     Returns (im_0_255, wc, ww, filename, ext, is_dcm, dcm_meta)."""
     st.sidebar.markdown('<div class="sidebar-chapter">📂 Image Source</div>', unsafe_allow_html=True)
@@ -428,15 +428,15 @@ def image_loader_widget(key_prefix="main"):
         if mx_i > mn_i:
             im = (im - mn_i) / (mx_i - mn_i) * 255.0
 
-    # ── Unified window sliders — always 0-255, for every image type ─────────
-    st.sidebar.markdown('<div class="sidebar-chapter">🪟 Window Parameters</div>', unsafe_allow_html=True)
-    wc = st.sidebar.slider("Window Center (wc)", 0, 255, 128, key=f"{key_prefix}_wc",
-                           help="Centre of the display window. Shifts brightness up or down.")
-    ww = st.sidebar.slider("Window Width  (ww)", 1, 255, 255, key=f"{key_prefix}_ww",
-                           help="Width of the display window. Narrows the visible intensity range, boosting contrast. Wider = softer contrast; narrower = harsher contrast.")
+    ##
+    # # ── Unified window sliders — always 0-255, for every image type ─────────
+    # st.sidebar.markdown('<div class="sidebar-chapter">🪟 Window Parameters</div>', unsafe_allow_html=True)
+    # wc = st.sidebar.slider("Window Center (wc)", 0, 255, 128, key=f"{key_prefix}_wc",
+    #                        help="Centre of the display window. Shifts brightness up or down.")
+    # ww = st.sidebar.slider("Window Width  (ww)", 1, 255, 255, key=f"{key_prefix}_ww",
+    #                        help="Width of the display window. Narrows the visible intensity range, boosting contrast. Wider = softer contrast; narrower = harsher contrast.")
 
-    return im, wc, ww, filename, ext, is_dcm, dcm_meta
-
+    return im, filename, ext, is_dcm, dcm_meta
 
 def save_download_button(label, arr, filename_base, ext, key):
     """Renders a download button for a processed image."""
@@ -467,7 +467,12 @@ def ch1_display_methods():
         st.markdown('<div class="info-box">👈 Load an image from the sidebar to get started.</div>',
                     unsafe_allow_html=True)
         return
-
+    ###
+    if st.session_state.get("ch1_last_filename") != filename:
+        for key in ["ch1_cached_im1", "ch1_cached_y_init", "ch1_cached_w_func", "ch1_cached_txt"]:
+            st.session_state[key] = None
+        st.session_state["ch1_last_filename"] = filename
+    ###
     st.sidebar.markdown('<div class="sidebar-chapter">⚙️ Method</div>', unsafe_allow_html=True)
 
     category = st.sidebar.selectbox("Category",
@@ -507,7 +512,7 @@ def ch1_display_methods():
     else:  # Histogram
         method = st.sidebar.selectbox("Method", HISTOG, key="ch1_hist_method")
         if method == "CLAHE":
-            clip_limit = st.sidebar.slider("Clip Limit", 0.005, 0.10, 0.01, 0.01, key="ch1_clahe",
+            clip_limit = st.sidebar.slider("Clip Limit", 0.005, 0.10, 0.01, 0.005, key="ch1_clahe",
                                            help="Limits the height of local histograms to prevent the over-amplification of noise. 0.01 = Subtle contrast enhancement with minimal noise. 0.1 = Higher contrast, may show slight artifacts or increased noise.")
     run = st.sidebar.button("▶  Apply", key="ch1_run")
 
@@ -527,71 +532,80 @@ def ch1_display_methods():
         st.pyplot(fig_o, width='stretch')
         plt.close(fig_o)
 
-    if not run:
-        with col_proc:
-            st.markdown('<div class="info-box">Configure method in sidebar and press Apply.</div>',
-                        unsafe_allow_html=True)
-        return
-
-    # ── Processing ──
+    # ── Processing (runs when Apply is pressed; result cached for live window updates) ──
     im_norm = 255 * im / max(np.max(im), 1e-9)
     im1 = None
     y_init, w_func = None, None
     txt = method
 
-    if category == "Linear Windowing":
-        if method == "Optimal Display":
-            vmn, vmx = np.min(im), np.max(im)
-            im1 = np.round((TONES - 1) * (im - vmn) / max(vmx - vmn, 1e-9))
-            wc_opt = int((vmx + vmn) / 2); ww_opt = int(vmx - vmn)
-            y_init, w_func = _windowing_function(0, wc=wc_opt, ww=ww_opt)
+    if run:
+        if category == "Linear Windowing":
+            if method == "Optimal Display":
+                vmn, vmx = np.min(im), np.max(im)
+                im1 = np.round((TONES - 1) * (im - vmn) / max(vmx - vmn, 1e-9))
+                wc_opt = int((vmx + vmn) / 2); ww_opt = int(vmx - vmn)
+                y_init, w_func = _windowing_function(0, wc=wc_opt, ww=ww_opt)
 
-        elif method == "Simple Window":
-            im1 = _simple_window(im, sw_wc, sw_ww)
-            y_init, w_func = _windowing_function(1, wc=sw_wc, ww=sw_ww)
+            elif method == "Simple Window":
+                im1 = _simple_window(im, sw_wc, sw_ww)
+                y_init, w_func = _windowing_function(1, wc=sw_wc, ww=sw_ww)
 
-        elif method == "Broken Window":
-            im1 = _broken_window(im, gray_val, im_val)
-            y_init, w_func = _windowing_function(2, gray_val=gray_val, im_val=im_val)
+            elif method == "Broken Window":
+                im1 = _broken_window(im, gray_val, im_val)
+                y_init, w_func = _windowing_function(2, gray_val=gray_val, im_val=im_val)
 
-        elif method == "Double Window":
-            im1 = _double_window(im, ww1, wl1, ww2, wl2)
-            y_init, w_func = _windowing_function(3, ww1=ww1, wl1=wl1, ww2=ww2, wl2=wl2)
+            elif method == "Double Window":
+                im1 = _double_window(im, ww1, wl1, ww2, wl2)
+                y_init, w_func = _windowing_function(3, ww1=ww1, wl1=wl1, ww2=ww2, wl2=wl2)
 
-    elif category == "Non-Linear Windowing":
-        idx = NONLIN.index(method)
-        im1, y_init, w_func = _nonlinear_process(im, idx)
+        elif category == "Non-Linear Windowing":
+            idx = NONLIN.index(method)
+            im1, y_init, w_func = _nonlinear_process(im, idx)
 
-    else:  # Histogram
-        if method == "Histogram Equalization":
-            im1 = _hist_equalization(im_norm)
-        elif method == "CDF Equalization":
-            im1 = _cdf_equalization(im_norm)
-        elif method == "CLAHE":
-            try:
-                from skimage import exposure
-                im1 = exposure.equalize_adapthist(to_uint8(im_norm), clip_limit=clip_limit) * 255.0
-            except ImportError:
-                st.error("scikit-image required for CLAHE. Run: pip install scikit-image")
-                return
-        y_init = _hist_cumsum(im_norm)
-        w_func = _hist_cumsum(im1)
+        else:  # Histogram
+            if method == "Histogram Equalization":
+                im1 = _hist_equalization(im_norm)
+            elif method == "CDF Equalization":
+                im1 = _cdf_equalization(im_norm)
+            elif method == "CLAHE":
+                try:
+                    from skimage import exposure
+                    im1 = exposure.equalize_adapthist(to_uint8(im_norm), clip_limit=clip_limit) * 255.0
+                except ImportError:
+                    st.error("scikit-image required for CLAHE. Run: pip install scikit-image")
+                    return
+            y_init = _hist_cumsum(im_norm)
+            w_func = _hist_cumsum(im1)
 
-    if im1 is None:
+        if im1 is not None:
+            im1_disp = 255 * im1 / max(np.max(im1), 1e-9)
+            st.session_state["ch1_cached_im1"] = im1_disp
+            st.session_state["ch1_cached_y_init"] = y_init
+            st.session_state["ch1_cached_w_func"] = w_func
+            st.session_state["ch1_cached_txt"] = txt
+
+    # Use cached processed image if available (allows live window updates)
+    cached_im1 = st.session_state.get("ch1_cached_im1")
+    if cached_im1 is not None:
+        y_init   = st.session_state.get("ch1_cached_y_init")
+        w_func   = st.session_state.get("ch1_cached_w_func")
+        txt      = st.session_state.get("ch1_cached_txt", txt)
+        im1_disp = cached_im1
+        im1_windowed = _simple_window(im1_disp, wc, ww, image_depth=255, tones=256)
+        im1_windowed = np.clip(im1_windowed, 0, 255)
+
+        with col_proc:
+            st.subheader(f"Processed · {txt}")
+            fig_p, ax_p = plt.subplots(figsize=(5, 5))
+            ax_p.imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
+            ax_p.axis("off")
+            st.pyplot(fig_p, width='stretch')
+            plt.close(fig_p)
+    else:
+        with col_proc:
+            st.markdown('<div class="info-box">Configure method in sidebar and press Apply.</div>',
+                        unsafe_allow_html=True)
         return
-
-    im1_disp = 255 * im1 / max(np.max(im1), 1e-9)
-    # Apply the global window sliders to the processed image too
-    im1_windowed = _simple_window(im1_disp, wc, ww, image_depth=255, tones=256)
-    im1_windowed = np.clip(im1_windowed, 0, 255)
-
-    with col_proc:
-        st.subheader(f"Processed · {txt}") ### edited out = (wc:{wc}, ww:{ww})
-        fig_p, ax_p = plt.subplots(figsize=(5, 5))
-        ax_p.imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
-        ax_p.axis("off")
-        st.pyplot(fig_p, width='stretch')
-        plt.close(fig_p)
 
     # ── Function / histogram plots ──
     tabs = st.tabs(["📈 Display Function", "📊 Histograms"])
@@ -665,6 +679,13 @@ def ch2_spatial_filters():
                     unsafe_allow_html=True)
         return
 
+    ###
+    if st.session_state.get("ch2_last_filename") != filename:
+        for key in ["ch2_cached_im1", "ch2_cached_kernel", "ch2_cached_filter"]:
+            st.session_state[key] = None
+        st.session_state["ch2_last_filename"] = filename
+    ###
+
     st.sidebar.markdown('<div class="sidebar-chapter">⚙️ Filter</div>', unsafe_allow_html=True)
 
     FILTERS = ["Smoothing", "Laplacian", "High Emphasis", "Median"]
@@ -714,18 +735,12 @@ def ch2_spatial_filters():
         st.pyplot(fig_o, width='stretch')
         plt.close(fig_o)
 
-    if not run:
-        with col_proc:
-            st.markdown('<div class="info-box">Configure filter in sidebar and press Apply Filter.</div>',
-                        unsafe_allow_html=True)
-        return
-
     image_depth = 255
     im1 = None
     im1_windowed = None
     kernel_used = None
 
-    if filter_choice == "Smoothing":
+    if run and filter_choice == "Smoothing":
         smooth_kernels = {
             "Cross (0,1 centre)":    np.array([[0,1,0],[1,1,1],[0,1,0]], dtype=float),
             "Full 3×3 box":          np.array([[1,1,1],[1,1,1],[1,1,1]], dtype=float),
@@ -744,15 +759,14 @@ def ch2_spatial_filters():
         im1_windowed = _simple_window(im1, wc, ww, image_depth=image_depth, tones=256)
         kernel_used = kernel  # store unnormalised for display
 
-    elif filter_choice == "Laplacian":
+    elif run and filter_choice == "Laplacian":
         kernel = np.array([[0,1,0],[1,-4,1],[0,1,0]], dtype=float)
         im1 = signal.convolve2d(im, kernel, mode="same")
         im1 = np.clip(im1, 0, 255)
         im1 = imNormalize(im1, 256)
-        im1_windowed = _simple_window(im1, wc, ww, image_depth=image_depth, tones=256)
         kernel_used = kernel
 
-    elif filter_choice == "High Emphasis":
+    elif run and filter_choice == "High Emphasis":
         kernels = {
             "HE1": np.array([[0,-1,0],[-1,5,-1],[0,-1,0]], dtype=float),
             "HE2": np.array([[-1,-1,-1],[-1,9,-1],[-1,-1,-1]], dtype=float),
@@ -768,64 +782,77 @@ def ch2_spatial_filters():
             kernel = np.array([[c_corner, c_cross, c_corner],
                                [c_cross,  c_center, c_cross],
                                [c_corner, c_cross, c_corner]], dtype=float)
-        sK = np.sum(kernel)     ## delete these two?
-        if sK > 0: kernel /= sK ##
+        # sK = np.sum(kernel)     ## comment out these two?
+        # if sK > 0: kernel /= sK ##
         im1 = signal.convolve2d(im, kernel, mode="same")
         im1 = np.clip(im1, 0, 255)
         im1 = imNormalize(im1, 256)
-        im1_windowed = _simple_window(im1, wc, ww, image_depth=image_depth, tones=256)
         kernel_used = kernel
 
-    elif filter_choice == "Median":
+    elif run and filter_choice == "Median":
         im1 = signal.medfilt2d(im.astype(float), (5, 5))
-        im1_windowed = _simple_window(im1, wc, ww, image_depth=image_depth, tones=256)
 
-    # Display results
-    with col_proc:
-        st.subheader(f"Filtered · {filter_choice}")
-        fig_p, ax_p = plt.subplots(figsize=(5, 5))
-        disp = im1_windowed if im1_windowed is not None else im1
-        ax_p.imshow(disp, cmap="gray", vmin=0, vmax=255)
-        ax_p.axis("off")
-        st.pyplot(fig_p, width='stretch')
-        plt.close(fig_p)
+    # Cache processed result when run; retrieve for live window updates
+    if run and im1 is not None:
+        st.session_state[f"ch2_cached_im1_{filename}"] = im1
+        # st.session_state["ch2_cached_im1"] = im1
+        st.session_state["ch2_cached_kernel"] = kernel_used
+        st.session_state["ch2_cached_filter"] = filter_choice
 
-    if kernel_used is not None:
-        with st.expander("🔍 Kernel used", expanded=True):
-            st.code(str(np.round(kernel_used, 4)))
+    cached_im1 = st.session_state.get(f"ch2_cached_im1_{filename}")
+    # cached_im1 = st.session_state.get("ch2_cached_im1")
+    if cached_im1 is not None:
+        cached_filter = st.session_state.get("ch2_cached_filter", filter_choice)
+        cached_kernel = st.session_state.get("ch2_cached_kernel")
+        im1_windowed = _simple_window(cached_im1, wc, ww, image_depth=image_depth, tones=256)
 
-    fig_cmp = Figure(figsize=(14, 5), facecolor="#0d1526")
-    axes = fig_cmp.subplots(1, 3)
-    axes[0].imshow(im_preview, cmap="gray", vmin=0, vmax=255); axes[0].set_title("Original"); axes[0].axis("off")
-    axes[1].imshow(np.clip(im1, 0, 255), cmap="gray")
-    axes[1].set_title(f"{filter_choice} (raw)"); axes[1].axis("off")
-    axes[2].imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
-    axes[2].set_title(f"+ Window wc={wc}, ww={ww}"); axes[2].axis("off")
-    fig_cmp.tight_layout()
-    st.pyplot(fig_cmp, width='stretch')
-    plt.close(fig_cmp)
+        # Display results
+        with col_proc:
+            st.subheader(f"Filtered · {cached_filter}")
+            fig_p, ax_p = plt.subplots(figsize=(5, 5))
+            ax_p.imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
+            ax_p.axis("off")
+            st.pyplot(fig_p, width='stretch')
+            plt.close(fig_p)
 
-    # Downloads
-    st.markdown("---")
-    base = filename.rsplit(".", 1)[0] if "." in filename else filename
-    final_arr = im1_windowed if im1_windowed is not None else im1
-    dcol1, dcol2 = st.columns(2)
-    with dcol1:
-        fig_dl = Figure(figsize=(12, 5), facecolor="#0d1526")
-        a = fig_dl.subplots(1, 3 if im1_windowed is not None else 2)
-        a[0].imshow(im_preview, cmap="gray", vmin=0, vmax=255); a[0].set_title("Original"); a[0].axis("off")
-        a[1].imshow(np.clip(im1, 0, 255), cmap="gray")
-        a[1].set_title(f"{filter_choice}"); a[1].axis("off")
-        if im1_windowed is not None:
+        if cached_kernel is not None:
+            with st.expander("🔍 Kernel used", expanded=True):
+                st.code(str(np.round(cached_kernel, 4)))
+
+        fig_cmp = Figure(figsize=(14, 5), facecolor="#0d1526")
+        axes = fig_cmp.subplots(1, 3)
+        axes[0].imshow(im_preview, cmap="gray", vmin=0, vmax=255); axes[0].set_title("Original"); axes[0].axis("off")
+        axes[1].imshow(np.clip(cached_im1, 0, 255), cmap="gray")
+        axes[1].set_title(f"{cached_filter} (raw)"); axes[1].axis("off")
+        axes[2].imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
+        axes[2].set_title(f"+ Window wc={wc}, ww={ww}"); axes[2].axis("off")
+        fig_cmp.tight_layout()
+        st.pyplot(fig_cmp, width='stretch')
+        plt.close(fig_cmp)
+
+        # Downloads
+        st.markdown("---")
+        base = filename.rsplit(".", 1)[0] if "." in filename else filename
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            fig_dl = Figure(figsize=(12, 5), facecolor="#0d1526")
+            a = fig_dl.subplots(1, 3)
+            a[0].imshow(im_preview, cmap="gray", vmin=0, vmax=255); a[0].set_title("Original"); a[0].axis("off")
+            a[1].imshow(np.clip(cached_im1, 0, 255), cmap="gray")
+            a[1].set_title(f"{cached_filter}"); a[1].axis("off")
             a[2].imshow(im1_windowed, cmap="gray", vmin=0, vmax=255)
             a[2].set_title(f"+ Windowed"); a[2].axis("off")
-        fig_dl.tight_layout()
-        st.download_button("⬇ Download full plot (PNG)", data=fig_to_bytes(fig_dl),
-                           file_name=f"{base}_spatial_filter_plot.png",
-                           mime="image/png", key="ch2_dl_plot")
-        plt.close(fig_dl)
-    with dcol2:
-        save_download_button("⬇ Download processed image", final_arr, base, ext, key="ch2_dl_img")
+            fig_dl.tight_layout()
+            st.download_button("⬇ Download full plot (PNG)", data=fig_to_bytes(fig_dl),
+                               file_name=f"{base}_spatial_filter_plot.png",
+                               mime="image/png", key="ch2_dl_plot")
+            plt.close(fig_dl)
+        with dcol2:
+            save_download_button("⬇ Download processed image", im1_windowed, base, ext, key="ch2_dl_img")
+    else:
+        with col_proc:
+            st.markdown('<div class="info-box">Configure filter in sidebar and press Apply Filter.</div>',
+                        unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -923,7 +950,8 @@ def ch3_frequency_filters():
         ax_o = fig1.add_subplot(gs1[0])
         ax_f = fig1.add_subplot(gs1[1])
         ax_s = fig1.add_subplot(gs1[2])
-        ax_o.imshow(im_norm, cmap="gray", vmin=0, vmax=255); ax_o.axis("off"); ax_o.set_title("Original")
+        im_orig_windowed = np.clip(_simple_window(im_norm, wc, ww, image_depth=255, tones=256), 0, 255)
+        ax_o.imshow(im_orig_windowed, cmap="gray", vmin=0, vmax=255); ax_o.axis("off"); ax_o.set_title("Original")
         ax_f.imshow(im_windowed, cmap="gray", vmin=0, vmax=255); ax_f.axis("off")
         ax_f.set_title(f"Filtered · {sText}  wc={wc}, ww={ww}")
         ax_s.imshow(fft_orig, cmap="bone"); ax_s.axis("off"); ax_s.set_title("FFT Spectrum")
@@ -1237,9 +1265,19 @@ def ch4_reconstruction():
     recon_norm = (reconstruction - mn_r) / max(mx_r - mn_r, 1e-9) * 255.0
     recon_windowed = np.clip(_simple_window(recon_norm, wc, ww, image_depth=255, tones=256), 0, 255)
 
+    # Crop the reconstructed image to match the original image dimensions,
+    # removing the black circular border introduced by iradon/iradon_sart.
+    orig_h, orig_w = im_windowed_ch4.shape
+    rec_h, rec_w = recon_windowed.shape
+    crop_h = min(orig_h, rec_h)
+    crop_w = min(orig_w, rec_w)
+    row_start = (rec_h - crop_h) // 2
+    col_start = (rec_w - crop_w) // 2
+    recon_windowed = recon_windowed[row_start:row_start + crop_h, col_start:col_start + crop_w]
+
     # Show reconstructed image next to original
     with col_recon:
-        st.subheader(f"Reconstructed  ({method_label})  (wc={wc}, ww={ww})")
+        st.subheader(f"Reconstructed  ({method_label}) ") #(wc={wc}, ww={ww})
         fig_r, ax_r = plt.subplots(figsize=(7, 7))
         ax_r.imshow(recon_windowed, cmap="gray", vmin=0, vmax=255); ax_r.axis("off")
         st.pyplot(fig_r, width='stretch')
@@ -1272,28 +1310,12 @@ def ch4_reconstruction():
 
     # Big figure — full report
     fig_full = plt.figure(figsize=(18, 12), facecolor="#0d1526")
-    gs_f = gridspec.GridSpec(2, 3, figure=fig_full, wspace=0.25, hspace=0.35,
-                             height_ratios=[1.4, 1])
+    gs_f = gridspec.GridSpec(2, 3, figure=fig_full, wspace=0.25, hspace=0.38,
+                             height_ratios=[1.5, 1])
 
     def _ax_style(ax, title):
         ax.set_facecolor("#111f35")
         ax.set_title(title, color="#6cb6ff", fontsize=10, pad=6)
-
-    ax_f0 = fig_full.add_subplot(gs_f[0, 0])
-    ax_f0.imshow(im_windowed_ch4, cmap="gray", vmin=0, vmax=255); ax_f0.axis("off"); _ax_style(ax_f0, "Original")
-
-    ax_f1 = fig_full.add_subplot(gs_f[0, 1:])   # sinogram spans 2 columns
-    ax_f1.imshow(sinogram, cmap="gray", aspect="auto",
-                 extent=(theta[0], theta[-1], 0, sinogram.shape[0]))
-    ax_f1.set_xlabel("Angle (°)", color="#768390", fontsize=8)
-    ax_f1.set_ylabel("Detector position", color="#768390", fontsize=8)
-    ax_f1.tick_params(colors="#768390", labelsize=7); _ax_style(ax_f1, "Sinogram")
-
-    # ax_f2 = fig_full.add_subplot(gs_f[0, 0])   # unnesecary
-    # fig_full.clear()
-
-    gs_f = gridspec.GridSpec(2, 3, figure=fig_full, wspace=0.25, hspace=0.38,
-                             height_ratios=[1.5, 1])
 
     ax_orig  = fig_full.add_subplot(gs_f[0, 0])
     ax_recon = fig_full.add_subplot(gs_f[0, 1])
@@ -1443,7 +1465,7 @@ def _windowing_function(choice, **kwargs):
         ww1=kwargs["ww1"]; wl1=kwargs["wl1"]; ww2=kwargs["ww2"]; wl2=kwargs["wl2"]
         half = (TONES/2)-1
         ve1=round((2.0*wl1+ww1)/2.0); vs1=max(ve1-ww1,0)
-        ve2=round((2.0*wl2+ww2)/2.0); vs2=ve2-ww2
+        ve2=round((2.0*wl2+ww2)/2.0); vs2=max(ve2-ww2,0)   # ← added max(..., 0)
         if vs2 < ve1:
             np_pt=round((vs2+ve1)/2.0); ve1=vs2=np_pt
         ve2=min(ve2, IMAGE_DEPTH)
@@ -1493,40 +1515,49 @@ def _hist_cumsum(im):
 
 def _hist_equalization(im):
     tones = TONES; image_depth = 256
-    B = np.round((tones-1) * (np.clip(im, 0, image_depth) / image_depth))
-    M, N = B.shape
-    Bval = B.ravel()
-    p = np.argsort(Bval)
-    neq = int((M*N) / tones + 0.5)
-    az = int((M*N) // neq)
-    zRem = int((M*N) % neq)
-    D = np.zeros(M*N)
-    k = -1
-    for i in range(0, neq*az, neq):
-        k += 1
-        for j in range(neq):
-            if i+j < len(D): D[i+j] = k
-    if zRem > 0:
-        for i in range(neq*az, neq*az+zRem):
-            if i < len(D): D[i] = tones - 1
-    L = np.zeros(M*N)
-    k = -1
-    for i in range(M):
-        for j in range(N):
-            k += 1
-            if k < len(p) and p[k] < len(D): L[p[k]] = D[k]
-    Z = L.reshape(B.shape)
-    return imNormalize(Z, tones)
+    im_u8 = np.clip(np.round(im), 0, tones - 1).astype(int)
+    hist, _ = np.histogram(im_u8, bins=tones, range=(0, tones))
+    cdf = hist.cumsum()
+    cdf_min = int(cdf[cdf > 0][0]) if np.any(cdf > 0) else 0
+    total = im_u8.size
+    denom = max(total - cdf_min, 1)
+    lut = np.floor((cdf - cdf_min) / denom * (tones - 1) + 0.5).astype(int)
+    lut = np.clip(lut, 0, tones - 1)
+    return lut[im_u8].astype(float)
+
+    # B = np.round((tones-1) * (np.clip(im, 0, image_depth) / image_depth))
+    # M, N = B.shape
+    # Bval = B.ravel()
+    # p = np.argsort(Bval)
+    # neq = int((M*N) / tones + 0.5)
+    # az = int((M*N) // neq)
+    # zRem = int((M*N) % neq)
+    # D = np.zeros(M*N)
+    # k = -1
+    # for i in range(0, neq*az, neq):
+    #     k += 1
+    #     for j in range(neq):
+    #         if i+j < len(D): D[i+j] = k
+    # if zRem > 0:
+    #     for i in range(neq*az, neq*az+zRem):
+    #         if i < len(D): D[i] = tones - 1
+    # L = np.zeros(M*N)
+    # k = -1
+    # for i in range(M):
+    #     for j in range(N):
+    #         k += 1
+    #         if k < len(p) and p[k] < len(D): L[p[k]] = D[k]
+    # Z = L.reshape(B.shape)
+    # return imNormalize(Z, tones)
 
 def _cdf_equalization(im):
     tones = TONES
-    B = np.round((tones-1) * (im / max(np.max(im), 1e-9)))
-    M, N = im.shape
-    h = _histogram(im)
-    tone_values = (M*N) / tones
-    CDFh = np.cumsum(h)
-    result = CDFh[np.clip(B.astype(int), 0, tones-1).ravel()] / max(tone_values, 1e-9)
-    return np.round(result).reshape(B.shape)
+    im_u8 = np.clip(np.round(im), 0, tones - 1).astype(int)
+    h = _histogram(im_u8)
+    cdf = np.cumsum(h)
+    total = max(cdf[-1], 1)
+    equalized = np.round((cdf[im_u8] / total) * (tones - 1))
+    return equalized.astype(float)
 
 # ── 1D Filter builders ────────────────────────────────────────────────────────
 
@@ -1601,7 +1632,7 @@ def _make_exponential(N, ndegree, fco, TYPE, trans):
         for k in range(L): fh[k] = np.exp(-np.log(2) * (fco/(k+0.0001))**ndegree)
         fh_copy = fh.copy()
         for k in range(L):
-            fh[k] = fh_copy[k+int(trans)] if k < int(N/2-trans) else fh_copy[int(N/2)]
+            fh[k] = fh_copy[min(k + int(trans), len(fh_copy) - 1)] if k < int(N/2 - trans) else fh_copy[min(int(N/2), len(fh_copy) - 1)]        
         sText = "Exponential HP"
     elif TYPE == 3:
         for k in range(L): fh[k] = np.exp(-np.log(2) * (fco/(k-trans+0.00001))**ndegree)
@@ -1630,7 +1661,8 @@ def _make_gaussian(N, ndegree, fco, TYPE, trans):
         for k in range(L): fh[k] = np.exp(-(2*fco**2/(k+0.0001)**2)**ndegree)
         fh_copy = fh.copy()
         for k in range(L):
-            fh[k] = fh_copy[k+int(trans)] if k < int(N/2-trans) else fh_copy[int(N/2)]
+            #fh[k] = fh_copy[k + int(trans)] if k < int(N/2- trans) else fh_copy[int(N/2)]
+            fh[k] = fh_copy[min(k + int(trans), len(fh_copy) - 1)] if k < int(N/2 - trans) else fh_copy[min(int(N/2), len(fh_copy) - 1)]
         sText = "Gaussian HP"
     elif TYPE == 3:
         for k in range(L): fh[k] = np.exp(-(2*fco**2/(k-trans+0.00001)**2)**ndegree)
@@ -1723,7 +1755,7 @@ with st.sidebar:
         key="chapter_nav",
     )
 
-    st.markdown("---")
+    # st.markdown("---")
 
     _prev_share = st.session_state.get("share_image", False)
 
@@ -1734,53 +1766,7 @@ with st.sidebar:
         "4 · Tomographic Reconstruction": "ch4",
     }.get(chapter, "ch1")
 
-    st.markdown('<div class="sidebar-chapter">🖼 Shared Image</div>', unsafe_allow_html=True)
-    share_image = st.checkbox(
-        "Use same image across all chapters",
-        value=_prev_share,
-        key="share_image",
-    )
-
-    if share_image:
-        # On the FIRST tick of enabling the checkbox, seed the shared loader
-        # with the exact image the current chapter already had selected,
-        # so the user's chosen image is preserved — not reset to default.
-        if not _prev_share:
-            _ch_source = st.session_state.get(f"{_ch_prefix}_source", "Folder ./images/")
-            _ch_fn     = st.session_state.get(f"{_ch_prefix}_pick", None)
-            _ch_wc     = st.session_state.get(f"{_ch_prefix}_wc", 128)
-            _ch_ww     = st.session_state.get(f"{_ch_prefix}_ww", 255)
-
-            st.session_state["shared_source"] = _ch_source
-            st.session_state["shared_wc"]     = _ch_wc
-            st.session_state["shared_ww"]     = _ch_ww
-
-            if _ch_fn is not None and _ch_source == "Folder ./images/":
-                _img_dir = "./images"
-                if os.path.isdir(_img_dir):
-                    _valid_ext = (".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff")
-                    if DICOM_AVAILABLE:
-                        _valid_ext += tuple(DICOM_EXTS)
-                    _files = sorted([f for f in os.listdir(_img_dir)
-                                     if f.lower().endswith(_valid_ext) and
-                                     os.path.isfile(os.path.join(_img_dir, f))])
-                    if _ch_fn in _files:
-                        st.session_state["shared_pick"] = _files.index(_ch_fn)
-
-        shared_im, shared_wc, shared_ww, shared_fn, shared_ext, shared_dcm, shared_meta = \
-            image_loader_widget("shared")
-        st.session_state["_shared_im"]    = shared_im
-        st.session_state["_shared_wc"]    = shared_wc
-        st.session_state["_shared_ww"]    = shared_ww
-        st.session_state["_shared_fn"]    = shared_fn
-        st.session_state["_shared_ext"]   = shared_ext
-        st.session_state["_shared_dcm"]   = shared_dcm
-        st.session_state["_shared_meta"]  = shared_meta
-        if shared_im is not None:
-            st.markdown(f'<span style="font-size:1rem; color:#8297ab;">📎 {shared_fn}</span>', unsafe_allow_html=True)
-        else:
-            st.info("Select an image above — it will be used in all chapters.")
-    else:
+    if not st.session_state.get("share_image", False):
         st.session_state["_shared_im"] = None
 
     st.markdown("---")
@@ -1790,20 +1776,55 @@ with st.sidebar:
         st.info("💡 Install scikit-image for reconstruction:\n`pip install scikit-image`")
 
 # ── Patch image_loader_widget so chapters transparently use shared image ─────
-_orig_loader = image_loader_widget
 
 def image_loader_widget(key_prefix="main"):      #### noqa: F811  (intentional override)
-    if st.session_state.get("share_image") and \
-       st.session_state.get("_shared_im") is not None:
-        return (
-            st.session_state["_shared_im"],
-            st.session_state["_shared_wc"],
-            st.session_state["_shared_ww"],
-            st.session_state["_shared_fn"],
-            st.session_state["_shared_ext"],
-            st.session_state["_shared_dcm"],
-            st.session_state["_shared_meta"],
-        )
-    return _orig_loader(key_prefix)
+    # Always run the real loader to render all file-picker widgets
+    im, filename, ext, is_dcm, dcm_meta = image_loader_core(key_prefix)
+    # Render the shared-image checkbox right after the file section, before window sliders
+    st.sidebar.markdown('<div class="sidebar-chapter">🖼 Shared Image</div>', unsafe_allow_html=True)
+    share_image = st.sidebar.checkbox(
+        "Use same image across all chapters",
+        key="share_image",
+    )
+
+    if share_image:
+        # "_shared_frozen" is a sentinel separate from the checkbox key.
+        # # # cleared back to False when the box is unticked.
+        if not st.session_state.get("_shared_frozen", False):
+            st.session_state["_shared_im"]     = im
+            st.session_state["_shared_fn"]     = filename
+            st.session_state["_shared_ext"]    = ext
+            st.session_state["_shared_dcm"]    = is_dcm
+            st.session_state["_shared_meta"]   = dcm_meta
+            st.session_state["_shared_frozen"] = True
+
+        frozen_im     = st.session_state.get("_shared_im")
+        frozen_fn     = st.session_state.get("_shared_fn", filename)
+        frozen_ext    = st.session_state.get("_shared_ext", ext)
+        frozen_is_dcm = st.session_state.get("_shared_dcm", is_dcm)
+        frozen_meta   = st.session_state.get("_shared_meta", dcm_meta)
+        if frozen_im is not None:
+            st.sidebar.markdown(f'<span style="font-size:1.15rem; color:#8297ab;">📎 {frozen_fn}</span>', unsafe_allow_html=True)
+        im, filename, ext, is_dcm, dcm_meta = frozen_im, frozen_fn, frozen_ext, frozen_is_dcm, frozen_meta
+    else:
+        # Unticked: clear sentinel so next enable snapshots fresh
+        st.session_state["_shared_frozen"] = False
+        st.session_state["_shared_im"]     = None
+
+    st.sidebar.markdown("---")
+
+    # ── Unified window sliders ─────────────────────────────────────────────
+    st.sidebar.markdown('<div class="sidebar-chapter">🪟 Window Parameters</div>', unsafe_allow_html=True)
+    wc = st.sidebar.slider("Window Center (wc)", 0, 255, 128, key=f"{key_prefix}_wc",
+                           help="Centre of the display window. Shifts brightness up or down.")
+    ww = st.sidebar.slider("Window Width  (ww)", 1, 255, 255, key=f"{key_prefix}_ww",
+                           help="Width of the display window. Narrows the visible intensity range, boosting contrast. Wider = softer contrast; narrower = harsher contrast.")
+    st.sidebar.markdown("---")
+
+    if share_image:
+        st.session_state["_shared_wc"] = wc
+        st.session_state["_shared_ww"] = ww
+
+    return im, wc, ww, filename, ext, is_dcm, dcm_meta
 
 CHAPTERS[chapter]()
