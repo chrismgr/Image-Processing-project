@@ -1661,8 +1661,8 @@ def _make_gaussian(N, ndegree, fco, TYPE, trans):
         for k in range(L): fh[k] = np.exp(-(2*fco**2/(k+0.0001)**2)**ndegree)
         fh_copy = fh.copy()
         for k in range(L):
-            #fh[k] = fh_copy[k + int(trans)] if k < int(N/2- trans) else fh_copy[int(N/2)]
-            fh[k] = fh_copy[min(k + int(trans), len(fh_copy) - 1)] if k < int(N/2 - trans) else fh_copy[min(int(N/2), len(fh_copy) - 1)]
+            fh[k] = fh_copy[k + int(trans)] if k < int(N/2- trans) else fh_copy[int(N/2)]
+            # fh[k] = fh_copy[min(k + int(trans), len(fh_copy) - 1)] if k < int(N/2 - trans) else fh_copy[min(int(N/2), len(fh_copy) - 1)]
         sText = "Gaussian HP"
     elif TYPE == 3:
         for k in range(L): fh[k] = np.exp(-(2*fco**2/(k-trans+0.00001)**2)**ndegree)
